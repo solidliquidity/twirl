@@ -1,0 +1,12 @@
+.git
+.github
+.temp
+
+.dockerignore
+**/.pycache
+**/__pycache__
+cloudbuild.yml
+cloudbuild.yaml
+README.md
+requirements-dev.txt
+**/Dockerfile

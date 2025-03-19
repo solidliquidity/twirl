@@ -1,0 +1,4 @@
+--extra-index-url https://europe-python.pkg.dev/twirldata/python-repository/simple/
+-c twirl-version.txt
+-r requirements.txt
+twirl-beta
