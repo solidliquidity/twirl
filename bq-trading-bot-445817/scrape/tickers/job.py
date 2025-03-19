@@ -10,12 +10,12 @@ import torch
 from datetime import datetime
 import sys
 sys.path.insert(0, '/app') 
-from scrape.solidliquidity_etl.solidliquidity.reddit_scraper.scraper import RedditScraper
-from scrape.solidliquidity_etl.solidliquidity.ticker_context.helpers import get_exchange_from_ticker
-from scrape.solidliquidity_etl.solidliquidity.sentiment_analysis.analyser import extract_stocks_and_sentiment
-from scrape.solidliquidity_etl.solidliquidity.news_scraper.helpers import get_recent_news, get_relevant_news
-from scrape.solidliquidity_etl.solidliquidity.financial_analysis.helpers import get_market_cap
-from scrape.solidliquidity_etl.solidliquidity.ticker_context.context import get_tickers_from_stocks
+from ..solidliquidity_etl.solidliquidity.reddit_scraper.scraper import RedditScraper
+from ..solidliquidity_etl.solidliquidity.ticker_context.helpers import get_exchange_from_ticker
+from ..solidliquidity_etl.solidliquidity.sentiment_analysis.analyser import extract_stocks_and_sentiment
+from ..solidliquidity_etl.solidliquidity.news_scraper.helpers import get_recent_news, get_relevant_news
+from ..solidliquidity_etl.solidliquidity.financial_analysis.helpers import get_market_cap
+from ..solidliquidity_etl.solidliquidity.ticker_context.context import get_tickers_from_stocks
 
 # Initialize environment variables
 load_dotenv()
