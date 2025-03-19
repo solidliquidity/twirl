@@ -1,0 +1,145 @@
+name: Twirl release
+
+on:
+  push:
+    branches:
+      - main
+
+concurrency:
+  group: release
+  cancel-in-progress: true
+
+jobs:
+  twirl-version:
+    runs-on: ubuntu-latest
+    outputs:
+      version-identifier: ${{ steps.get-version-identifier.outputs.twirl-version-identifier }}
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+
+      - name: Get Twirl version
+        id: get-version
+        shell: python
+        run: |
+          import os
+          from packaging import requirements, version
+          if not os.path.exists('twirl-version.txt'):
+              raise Exception("twirl-version.txt not found, cannot proceed without it.")
+          with open("twirl-version.txt", "r") as f, open(os.getenv("GITHUB_OUTPUT"), "a") as gh_env:
+              for line in f:
+                  trimline = line.strip()
+                  if not trimline:
+                      continue
+                  req = requirements.Requirement(trimline)
+                  if req.name == "twirl-beta":
+                      specs = list(req.specifier)
+                      if len (specs) > 1:
+                          raise Exception("Multiple specs, not supported")
+                      if specs[0].operator != "==":
+                          raise Exception("twirl version must be pinned ('==' operator).")
+                      twirl_version = version.parse(specs[0].version)
+                      print("Twirl version:", twirl_version)
+                      print(f"twirl-version={twirl_version}", file=gh_env)
+                      break
+              else:
+                  raise Exception("twirl-beta not found in twirl-version.txt")
+
+
+      - name: Get Twirl hash, if present
+        id: get-base-image-hash
+        shell: python
+        run: |
+          import json
+          import os
+
+          if os.path.exists('twirl-base-image-hash.txt'):
+              with open('twirl-base-image-hash.txt', "r") as f, open(os.getenv("GITHUB_OUTPUT"), "a") as gh_env:
+                  twirl_version_hash_contents = json.load(f)
+                  if "base_image_hash" in twirl_version_hash_contents:
+                      base_image_hash = twirl_version_hash_contents.get("base_image_hash")
+                      if not base_image_hash:
+                          raise Exception("base_image_hash not found in twirl-base-image-hash.txt")
+                      elif not base_image_hash.startswith("sha256:"):
+                          raise Exception("base_image_hash in twirl-base-image-hash.txt must begin with 'sha256:'")
+                      print("Twirl base image hash:", base_image_hash)
+                      print(f"twirl-base-image-hash={base_image_hash}", file=gh_env)
+
+                  else:
+                      raise Exception("base_image_hash not found in twirl-base-image-hash.txt")
+          else:
+              print("No twirl-base-image-hash.txt present, will proceed without it.")
+
+
+      - name: Get Twirl hash for given version
+        id: get-version-based-hash
+        run: |
+          docker pull europe-docker.pkg.dev/twirldata/twirl/twirl-base:v${{ steps.get-version.outputs.twirl-version }}
+          echo "image-with-digest=$(docker inspect --format='{{index .RepoDigests 0}}' europe-docker.pkg.dev/twirldata/twirl/twirl-base:v${{ steps.get-version.outputs.twirl-version }})" >> $GITHUB_OUTPUT
+
+
+      - name: Get Twirl version identifier
+        id: get-version-identifier
+        shell: python
+        env:
+          version: ${{ steps.get-version.outputs.twirl-version }}
+          hash:  ${{ steps.get-base-image-hash.outputs.twirl-base-image-hash }}
+          image-with-digest:  ${{ steps.get-version-based-hash.outputs.image-with-digest }}
+        run: |
+          import os
+          with open(os.getenv("GITHUB_OUTPUT"), "a") as gh_env:
+            if os.getenv("hash"):
+              version_identifier = os.getenv("version") + "@" + os.getenv("hash")
+              image_with_digest = os.getenv('image-with-digest')
+              version_based_hash = image_with_digest.removeprefix('europe-docker.pkg.dev/twirldata/twirl/twirl-base@')
+              if version_based_hash != os.getenv("hash"):
+                raise Exception(f"Misconfiguration: hash corresponding to version {os.getenv("version")} ('{version_based_hash}') does not match hash declared in twirl-base-image-hash.txt ('{os.getenv("hash")}')")
+            else:
+              version_identifier = os.getenv("version")
+            print("Twirl version identifier:", version_identifier)
+            print(f"twirl-version-identifier={version_identifier}", file=gh_env)
+
+  twirl-release:
+    needs: [twirl-version]
+    runs-on: ubuntu-latest
+    container:
+      image: europe-docker.pkg.dev/twirldata/twirl/twirl-base:v${{ needs.twirl-version.outputs.version-identifier }}
+
+    permissions:
+      contents: 'read'
+      id-token: 'write'
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+      - id: auth
+        name: Authenticate to GCP
+        uses: google-github-actions/auth@v2
+        with:
+          project_id: trading-bot-445817
+          token_format: access_token
+          workload_identity_provider: projects/144500557013/locations/global/workloadIdentityPools/gh-twirl/providers/gh-twirl-solidliquidity
+          service_account: twirl-builder@trading-bot-445817.iam.gserviceaccount.com
+
+      - name: Login to Google Artifact Registry
+        uses: docker/login-action@v3
+        with:
+          registry: europe-west2-docker.pkg.dev
+          username: oauth2accesstoken
+          password: ${{ steps.auth.outputs.access_token }}
+
+      # If you use any Dbt jobs, uncomment this step
+      # - name: dbt deps
+      #   run: dbt deps
+      #   working-directory: .  # If the dbt project is in a subdirectory, specify the path here
+
+      - name: Twirl release
+        run: twirl release
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.slack_webhook_url }}
+          GIT_COMMIT_HASH: ${{ github.sha }}
+          ORCHESTRATOR_URL: https://porchestrator-porc-solid-liquidity-282292472342.europe-west1.run.app
